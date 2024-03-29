@@ -7,7 +7,8 @@ Supports:
 - random index selection
 - nonregularized intercept
 - lambda regularization paths
-
+- input standardization to unit variance
+- precomputing Gram matrices
 
 ## Example
 ```C++
