@@ -1,7 +1,12 @@
-# ElasticNet implementation in ArrayFire
-## A simple and efficient GPU implementation of multi target ElasticNet.
+# ElasticNet AF
+### A simple and efficient implementation of multi-target ElasticNet with GPU support.
 
-Optimized using coordinate gradient descent with covariance update rule.
+Searching for an efficient linear regression optimizer with both L1 (lasso) and L2 (ridge) regularization and GPU support?
+Search no more.
+
+## Features
+
+ElasticNet optimizer using coordinate gradient descent with covariance update rule.
 Supports:
 - warm-starting from ridge regression solution
 - random index selection
@@ -9,6 +14,7 @@ Supports:
 - lambda regularization paths
 - input standardization to unit variance
 - precomputing Gram matrices
+- GPU (Cuda, OpenCL) and CPU through [Arrayfire](https://arrayfire.org/)
 
 ## Example
 ```C++
@@ -34,7 +40,8 @@ For more details and supported parameters, see the [ElasticNet](elasticnet_af.hp
 
 ## Build
 
-Use as a single-header library with dependencies to `fmt` and `arrayfire`.
+Use as a single-header library with dependencies to [fmt](https://fmt.dev/) and [Arrayfire](https://arrayfire.org/).
+Currently requires ArrayFire >= 3.9.0, if you need support for older versions, let me know.
 
 To build the example, run the following commands:
 ```bash
