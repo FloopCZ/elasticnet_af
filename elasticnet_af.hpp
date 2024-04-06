@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <af/device.h>
 #include <algorithm>
 #include <arrayfire.h>
 #include <cassert>
@@ -169,6 +170,7 @@ public:
               * af::identity(X.dims(1), X.dims(1), X.type());
             af::array X_reg = af::join(0, X, std::move(reg));
             af::array Y_reg = af::join(0, Y, af::constant(0, {X.dims(1), Y.dims(1)}, Y.type()));
+            af::deviceGC();  // Call garbage collector before solve() to avoid OOM.
             B_star_ = af::solve(X_reg, Y_reg);
         }
 
