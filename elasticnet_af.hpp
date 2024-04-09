@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <af/device.h>
 #include <algorithm>
 #include <arrayfire.h>
 #include <cassert>
@@ -79,6 +78,10 @@ protected:
     af::array B_star_;
     af::array intercept_;
 
+    long n_predictors_;
+    long n_targets_;
+    af::dtype type_;
+
     /// Store the mean and std of the input matrix.
     void store_standardization_stats(const af::array& X)
     {
@@ -100,6 +103,20 @@ protected:
         X(af::span, nonzero_std_) -= mean_(0, nonzero_std_);
         if (opts_.standardize_var) X(af::span, nonzero_std_) /= std_(0, nonzero_std_);
         return X;
+    }
+
+    /// Denormalize the coefficients and intercept to be used on data that have not been normalized.
+    ///
+    /// Auxiliary function called as a finalizer after fitting.
+    void destandardize_coefficients()
+    {
+        // Adapt the coefficients and intercept to non-standardized predictors.
+        if (opts_.standardize_var) B_star_ /= af::tile(std_(0, nonzero_std_).T(), 1, n_targets_);
+        intercept_ -= af::matmul(mean_(0, nonzero_std_), B_star_);
+        // Extend the coefficients to the full predictor matrix including the constant columns.
+        af::array B_star_full = af::constant(0, n_predictors_, n_targets_, type_);
+        B_star_full(nonzero_std_, af::span) = B_star_;
+        B_star_ = B_star_full;
     }
 
 public:
@@ -137,24 +154,25 @@ public:
     /// \return True if the algorithm converged, false otherwise.
     bool fit(af::array X, af::array Y)
     {
+        n_predictors_ = X.dims(1);
+        n_targets_ = Y.dims(1);
+        type_ = X.type();
         const long n_samples = X.dims(0);
-        const long n_predictors = X.dims(1);
-        const long n_targets = Y.dims(1);
-        const af::dtype type = X.type();
 
         // Check the parameters.
         if (Y.dims(0) != n_samples)
             throw std::invalid_argument(fmt::format(
               "The input matrix X has {} rows, but the output matrix Y has {} rows.", n_samples,
               Y.dims(0)));
-        if (Y.type() != type) throw std::invalid_argument("X and Y must have the same data type.");
+        if (Y.type() != type_) throw std::invalid_argument("X and Y must have the same data type.");
 
         // Standardize the predictors.
         store_standardization_stats(X);
         if (nonzero_std_.elements() == 0)
             throw std::invalid_argument("All columns of the input matrix are constant.");
         X = standardize(std::move(X));
-        X = X(af::span, nonzero_std_);  // Remove constant columns (std == 0).
+        if (af::count<long>(nonzero_std_) != n_predictors_)
+            X = X(af::span, nonzero_std_);  // Remove constant columns (std == 0).
         const long n_nonconst_predictors = X.dims(1);
 
         // Subtract the intercept from the targets.
@@ -162,7 +180,7 @@ public:
         Y -= intercept_;
 
         // Initial guess are zero coefficients.
-        B_star_ = af::constant(0, n_nonconst_predictors, n_targets, type);
+        B_star_ = af::constant(0, n_nonconst_predictors, n_targets_, type_);
 
         // Warm start from the ridge regression solution if requested.
         if (opts_.warm_start) {
@@ -174,15 +192,19 @@ public:
             B_star_ = af::solve(X_reg, Y_reg);
         }
 
+        if (opts_.path_len <= 0) {
+            destandardize_coefficients();
+            return true;
+        }
+
         // Generate "the path" of lambda values for each target.
         const af::array lambda_path = [&]() {
-            if (opts_.path_len == 0) return af::array{};
             if (opts_.path_len == 1 || opts_.alpha < opts_.tol)
-                return af::constant(opts_.lambda, opts_.path_len, n_targets, type);
+                return af::constant(opts_.lambda, opts_.path_len, n_targets_, type_);
             const af::array lambda_max =
               af::max(af::abs(af::matmulTN(X, Y)), 0) / n_samples / opts_.alpha;
             return geomspace(
-              lambda_max, af::constant(opts_.lambda, 1, n_targets, type), opts_.path_len);
+              lambda_max, af::constant(opts_.lambda, 1, n_targets_, type_), opts_.path_len);
         }();
 
         // Precompute covariance matrices.
@@ -192,7 +214,7 @@ public:
         // Coordinate array and random generator for selecting random indices.
         std::vector<long> idxs(n_nonconst_predictors);
         std::iota(idxs.begin(), idxs.end(), 0L);
-        std::seed_seq seed_seq{n_predictors, n_targets, n_samples, opts_.path_len};
+        std::seed_seq seed_seq{n_predictors_, n_targets_, n_samples, opts_.path_len};
         std::minstd_rand idx_prng{seed_seq};
 
         // Run the coordinate graient descent.
@@ -227,13 +249,7 @@ public:
             }
         }
 
-        // Adapt the coefficients and intercept to non-standardized predictors.
-        if (opts_.standardize_var) B_star_ /= af::tile(std_(0, nonzero_std_).T(), 1, n_targets);
-        intercept_ -= af::matmul(mean_(0, nonzero_std_), B_star_);
-        // Extend the coefficients to the full predictor matrix including the constant columns.
-        af::array B_star_full = af::constant(0, n_predictors, n_targets, type);
-        B_star_full(nonzero_std_, af::span) = B_star_;
-        B_star_ = B_star_full;
+        destandardize_coefficients();
         return converged;
     }
 
