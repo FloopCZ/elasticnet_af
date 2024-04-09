@@ -143,7 +143,10 @@ public:
         if (opts_.path_len < 0)
             throw std::invalid_argument("The path length must be non-negative.");
         if (opts_.warm_start && opts_.path_len != 1)
-            throw std::invalid_argument("The path length must be set to 1 when using warm start.");
+            throw std::invalid_argument(
+              "The path length must be set to 1 when using warm start. Lambda path does not "
+              "provide any benefit when we already have all the coefficients nonzero because of "
+              "the warm start.");
     }
 
     /// Fit the ElasticNet model to the given input-output data.
@@ -192,7 +195,8 @@ public:
             B_star_ = af::solve(X_reg, Y_reg);
         }
 
-        if (opts_.path_len <= 0) {
+        // Early return if there is nothing else to do.
+        if (opts_.path_len <= 0 || (opts_.warm_start && (opts_.lambda == 0 || opts_.alpha == 0.))) {
             destandardize_coefficients();
             return true;
         }
