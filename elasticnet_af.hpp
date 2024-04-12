@@ -318,4 +318,4 @@ public:
     }
 };
 
-};  // namespace elasticnet_af
+}  // namespace elasticnet_af
