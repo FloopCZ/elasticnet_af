@@ -15,6 +15,7 @@
 #include <cassert>
 #include <fmt/format.h>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <stdexcept>
 
@@ -83,9 +84,13 @@ protected:
     af::dtype type_;
 
     /// Store the mean and std of the input matrix.
-    void store_standardization_stats(const af::array& X)
+    void store_standardization_stats(const af::array& X, const std::optional<af::array>& W)
     {
-        mean_ = af::mean(X, 0);
+        if (W.has_value()) {
+            mean_ = af::mean(X, *W, 0);
+        } else {
+            mean_ = af::mean(X, 0);
+        }
         std_ = af::stdev(X, AF_VARIANCE_POPULATION, 0);
         nonzero_std_ = af::where(af::flat(std_));
     }
@@ -153,9 +158,11 @@ public:
     ///
     /// \param X The input matrix with dimensions (n_samples, n_features).
     /// \param Y The output matrix with dimensions (n_samples, n_targets).
-    /// \throws std::invalid_argument If the input matrices have incompatible dimensions.
+    /// \param W The weights for each observation with dimensions (n_samples, 1). The
+    ///          weights are internally normalized to unit mean and are shared for all targets.
+    /// \throws std::invalid_argument If the input matrices have incompatible dimensions or types.
     /// \return True if the algorithm converged, false otherwise.
-    bool fit(af::array X, af::array Y)
+    bool fit(af::array X, af::array Y, std::optional<af::array> W = {})
     {
         n_predictors_ = X.dims(1);
         n_targets_ = Y.dims(1);
@@ -168,9 +175,17 @@ public:
               "The input matrix X has {} rows, but the output matrix Y has {} rows.", n_samples,
               Y.dims(0)));
         if (Y.type() != type_) throw std::invalid_argument("X and Y must have the same data type.");
+        if (W.has_value()) {
+            if (W->dims() != af::dim4{n_samples})
+                throw std::invalid_argument("W must have dimensions (n_samples, 1).");
+            if (W->type() != type_)
+                throw std::invalid_argument("X and W must have the same data type.");
+            // Normalize weights.
+            *W /= af::mean(*W);
+        }
 
         // Standardize the predictors.
-        store_standardization_stats(X);
+        store_standardization_stats(X, W);
         if (nonzero_std_.elements() == 0)
             throw std::invalid_argument("All columns of the input matrix are constant.");
         X = standardize(std::move(X));
@@ -179,8 +194,19 @@ public:
         const long n_nonconst_predictors = X.dims(1);
 
         // Subtract the intercept from the targets.
-        intercept_ = af::mean(Y, 0);
+        if (W.has_value()) {
+            intercept_ = af::mean(Y, *W, 0);
+        } else {
+            intercept_ = af::mean(Y, 0);
+        }
         Y -= intercept_;
+
+        // Apply the weights.
+        if (W.has_value()) {
+            af::array sqrt_W = af::sqrt(*W);
+            X *= sqrt_W;
+            Y *= sqrt_W;
+        }
 
         // Initial guess are zero coefficients.
         B_star_ = af::constant(0, n_nonconst_predictors, n_targets_, type_);

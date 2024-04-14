@@ -14,6 +14,7 @@ Supports:
 - lambda regularization paths
 - input standardization to unit variance
 - precomputing Gram matrices
+- observation weights
 - GPU (Cuda, OpenCL) and CPU through [Arrayfire](https://arrayfire.org/)
 
 ## Example
