@@ -141,7 +141,7 @@ public:
     /// \throws std::invalid_argument If the parameters are invalid.
     ElasticNet(options opts) : opts_(std::move(opts))
     {
-        if (opts_.lambda <= 0) throw std::invalid_argument("The lambda must be positive.");
+        if (opts_.lambda < 0) throw std::invalid_argument("The lambda must be non-negative.");
         if (opts_.alpha < 0 || opts_.alpha > 1)
             throw std::invalid_argument("The alpha must be between 0 and 1.");
         if (opts_.tol <= 0) throw std::invalid_argument("The tolerance must be positive.");
@@ -211,6 +211,14 @@ public:
         // Initial guess are zero coefficients.
         B_star_ = af::constant(0, n_nonconst_predictors, n_targets_, type_);
 
+        // With regularization disabled, simply return the least squares solution.
+        if (opts_.lambda == 0.) {
+            af::deviceGC();  // Call garbage collector before solve() to avoid OOM.
+            B_star_ = af::solve(X, Y);
+            destandardize_coefficients();
+            return true;
+        }
+
         // Warm start from the ridge regression solution if requested.
         if (opts_.warm_start) {
             af::array reg = std::sqrt(opts_.lambda * (1. - opts_.alpha))
@@ -222,7 +230,7 @@ public:
         }
 
         // Early return if there is nothing else to do.
-        if (opts_.path_len <= 0 || (opts_.warm_start && (opts_.lambda == 0 || opts_.alpha == 0.))) {
+        if (opts_.path_len <= 0 || (opts_.warm_start && opts_.alpha == 0.)) {
             destandardize_coefficients();
             return true;
         }
